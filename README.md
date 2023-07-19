@@ -63,7 +63,7 @@ The above discussed architecture is implemented in below steps using cloudformat
 - Setup CodeDeploy in Workload accounts in respective regions. Ensure the codedeploy is associated with ALB listener ARN created from Infra setup.
 - Create codepipeline in Tools Account. Provide access for codepipeline, codebuild roles in KMS key policy and S3 bucket policy.
 
-### Testing and Verification using Blue/Green
+### Testing and Verification of Blue/Green CodeDeploy in Codepipeline
 - Create a new index.html or modify the contents in index.html. 
 - Modify the input artifacts `taskdef.json`, `appspec.yaml` with relevant parameters like **accountid** 
 - Push Dockerfile, buildspec.yaml to codecommit repository.
@@ -86,8 +86,11 @@ The above discussed architecture is implemented in below steps using cloudformat
 - Delete all objects from S3 artifact buckets.
 - Delete the cloudformation stacks deployed in Tools account and respective workload accounts.
 
-## Security
+## Contributing
 See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
+
+## Security
+See [SECURITY](SECURITY.md) for more information.
 
 ## License
 This library is licensed under the MIT-0 License. See the [LICENSE](LICENSE) file.
