@@ -1,0 +1,164 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description:  This template creates ECR, ECS Cluster, Task Definition and Fargate Service
+
+Parameters:
+  EnvironmentName:
+    Description: An environment name that is prefixed to resource names
+    Type: String
+    Default: Poc
+  EnvironmentType:
+    Description: An environment name that is tagged to resource names for identification
+    Type: String
+    AllowedValues:
+    - QA
+    - Staging
+    - Production
+  VpcID:
+    Type: 'AWS::EC2::VPC::Id'
+    Description: Select a VPC that allows instances to access the Internet.
+  ALBPublicSubnet1:
+    Type: 'AWS::EC2::Subnet::Id'
+    Description: Select two public subnets in your selected VPC.
+  ALBPublicSubnet2:
+    Type: 'AWS::EC2::Subnet::Id'
+    Description: Select two public subnets in your selected VPC.
+  VPCCidr:
+    Type: String
+    Description: VPC CIDR to restrict traffic
+
+Resources:
+  ALBSecurityGroup:
+      Type: 'AWS::EC2::SecurityGroup'
+      Properties:
+       GroupDescription: Application Load balancer Security Group
+       VpcId: !Ref VpcID
+       Tags:
+       - Key: Name
+         Value: !Sub ${EnvironmentName}
+       - Key: EnvironmentType
+         Value: !Sub ${EnvironmentType}
+  ALBSecurityGroupHTTPinbound:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      Description: "Inbound Security Group rule for ALB to access application"
+      GroupId: !Ref ALBSecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      CidrIp: 0.0.0.0/0
+  ALBSecurityGroupHTTPoutbound:
+    Type: 'AWS::EC2::SecurityGroupEgress'
+    Properties:
+      Description: "Outbound Security Group rule for ALB to allow 443 traffic"
+      GroupId: !Ref ALBSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: !Ref VPCCidr
+  ALBSecurityGroupHTTPoutbound80:
+    Type: 'AWS::EC2::SecurityGroupEgress'
+    Properties:
+      Description: "Outbound Security Group rule for ALB to allow 80 traffic"
+      GroupId: !Ref ALBSecurityGroup
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      CidrIp: !Ref VPCCidr    
+  ECSALB:
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+    Properties:
+      Name: !Sub ${EnvironmentName}-${EnvironmentType}-ALB
+      Scheme: internet-facing
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: '30'
+      Subnets:
+      - !Ref ALBPublicSubnet1
+      - !Ref ALBPublicSubnet2
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvironmentName}
+      - Key: EnvironmentType
+        Value: !Sub ${EnvironmentType}
+  ALBListener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ECSTG
+      LoadBalancerArn: !Ref ECSALB
+      Port: '80'
+      Protocol: HTTP
+  ECSALBListenerRule:
+    Type: 'AWS::ElasticLoadBalancingV2::ListenerRule'
+    DependsOn: ALBListener
+    Properties:
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref ECSTG
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - /
+      ListenerArn: !Ref ALBListener
+      Priority: 1
+  ECSTG:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    DependsOn: ECSALB
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      Name: !Sub ${EnvironmentName}-${EnvironmentType}-TG1
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref VpcID
+      TargetType: ip
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvironmentName}
+      - Key: EnvironmentType
+        Value: !Sub ${EnvironmentType}
+  ECSTG2:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    DependsOn: ECSALB
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      Name: !Sub ${EnvironmentName}-${EnvironmentType}-TG2
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref VpcID
+      TargetType: ip
+      Tags:
+      - Key: Name
+        Value: !Sub ${EnvironmentName}
+      - Key: EnvironmentType
+        Value: !Sub ${EnvironmentType}
+
+Outputs:
+  ALBSecurityGroup:
+    Description: Security group with no ingress rule
+    Value: !Ref ALBSecurityGroup
+  ECSTargetGroup1:
+    Description: Target Group of ALB that has to be used for ECS Service
+    Value: !Ref ECSTG
+  ECSTargetGroup2:
+    Description: Target Group of ALB that has to be used for ECS Service
+    Value: !Ref ECSTG2
+  ALBListenerARN:
+    Description: ALB Listener ARN to pass to CodeDeploy Deployment Group
+    Value: !Ref ALBListener
+  ALBListenerFQDN:
+    Description: ALB Listener DNS name to access ECS Service
+    Value:
+      Fn::GetAtt: [ECSALB, DNSName]

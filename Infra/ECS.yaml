@@ -1,0 +1,190 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description:  This template creates ECR, ECS Cluster, Task Definition and Fargate Service
+
+Parameters:
+  EnvironmentName:
+    Description: An environment name that is prefixed to resource names
+    Type: String
+    Default: Poc
+  EnvironmentType:
+    Description: An environment name that is tagged to resource names for identification
+    Type: String
+    AllowedValues:
+    - QA
+    - Staging
+    - Production
+  VpcID:
+    Type: 'AWS::EC2::VPC::Id'
+    Description: Select a VPC that allows instances to access the Internet.
+  ECSPrivateSubnet1:
+    Type: 'AWS::EC2::Subnet::Id'
+    Description: Select two private subnets in your selected VPC.
+  ECSPrivateSubnet2:
+    Type: 'AWS::EC2::Subnet::Id'
+    Description: Select two private subnets in your selected VPC.
+  ImageRegistryName:
+    Type: String
+    Description: The ECR Repository that has the images for application
+  LBSecurityGroup:
+    Type: String
+    Description: Load Balancer security group to allow traffic to ECS Service
+  RegistryAccountid:
+    Type: String
+    Description: Account id that has the ECR setup
+  ImageName:
+    Type: String
+    Description: Application image name that has to be used for setup.
+  ImageRegion:
+    Type: String
+    Description: AWS Region that has the ECR and image setup.
+  ContainerPort:
+    Type: Number
+    Default: 80
+  TargetGroup1:
+    Type: String
+    Description: Register ECS Service with Target Group of ALB
+  TargetGroup2:
+    Type: String
+    Description: Register ECS Service with Target Group of ALB
+
+Resources:
+  ECSServiceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs.amazonaws.com
+                - ecs-tasks.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: ecs-service
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'elasticloadbalancing:DeregisterInstancesFromLoadBalancer'
+                  - 'elasticloadbalancing:DeregisterTargets'
+                  - 'elasticloadbalancing:Describe*'
+                  - 'elasticloadbalancing:RegisterInstancesWithLoadBalancer'
+                  - 'elasticloadbalancing:RegisterTargets'
+                Resource: "arn:aws:elasticloadbalancing::*:*"
+              - Effect: Allow
+                Action:
+                  - 'ec2:Describe*'
+                  - 'ec2:AuthorizeSecurityGroupIngress'
+                Resource: "arn:aws:ec2::*:*"
+  
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['', [!Ref EnvironmentType, !Ref EnvironmentName, ExecutionRole]]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 
+              - ecs-tasks.amazonaws.com
+              - ecs.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS'
+        - 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly'
+        - 'arn:aws:iam::aws:policy/CloudWatchLogsFullAccess'
+        - 'arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess'
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['', [/ecs/, !Ref EnvironmentName, !Ref EnvironmentType]]
+      RetentionInDays: 3
+  ECSCluster:
+    Type: 'AWS::ECS::Cluster'
+    Properties:
+      ClusterName: !Sub ${EnvironmentType}-Cluster
+      #CapacityProviders: FARGATE
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    DependsOn: LogGroup
+    Properties:
+      # awsvpc is required for Fargate
+      Family: !Ref EnvironmentName
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: 256
+      Memory: 0.5GB
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: !Ref EnvironmentType
+          #Image: !Join['/', [!Join ['.',[!Ref RegistryAccountid, dkr, ecr, !Ref ImageRegion, amazonaws, com ]], !Ref ImageName]]
+          Image: !Sub "${RegistryAccountid}.dkr.ecr.${ImageRegion}.amazonaws.com/${ImageName}:latest"
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+          # Send logs to CloudWatch Logs
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref LogGroup
+              awslogs-stream-prefix: ecs
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub ${EnvironmentName}-Service
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref TaskDefinition
+      DeploymentController:
+        Type: CODE_DEPLOY
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+      #Desiredcount 0 is added here to prevent the failure of service creation. Image has to be pushed in ECR created from main stack and only then it should be scaled. Remove this parameter for subsequent updates. 
+      DesiredCount: 0
+      # This has to be set to after a basic image is pushed else service creation fails as it is an empty registry
+      HealthCheckGracePeriodSeconds: 30
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          # change to DISABLED if you're using private subnets that have access to a NAT gateway
+          AssignPublicIp: DISABLED
+          Subnets:
+            - !Ref ECSPrivateSubnet1
+            - !Ref ECSPrivateSubnet2
+          SecurityGroups:
+            - !Ref ContainerSecurityGroup
+      LoadBalancers:
+        - ContainerName: !Ref EnvironmentType
+          ContainerPort: !Ref ContainerPort
+          TargetGroupArn: !Ref TargetGroup1
+  ContainerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Join ['', [!Ref EnvironmentName, ContainerSecurityGroup]]
+      VpcId: !Ref VpcID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref ContainerPort
+          ToPort: !Ref ContainerPort
+          SourceSecurityGroupId: !Ref LBSecurityGroup
+          Description: "Ingress rule to allow traffic from load balancer security group"
+  ContainerSecurityGroupRule:
+    Type: 'AWS::EC2::SecurityGroupEgress'
+    Properties:
+      Description: "Egress rule to allow outbound traffic for pulling images"
+      GroupId: !Ref ContainerSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: 0.0.0.0/0
+
+Outputs:
+  ECSCluster:
+    Description: ECS Cluster name
+    Value: !Ref ECSCluster
+  ECSService:
+    Description: ECS Service name
+    Value: !GetAtt Service.Name

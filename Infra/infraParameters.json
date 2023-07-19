@@ -1,0 +1,34 @@
+[
+  {
+  "ParameterKey": "EnvironmentType",
+  "ParameterValue": "QA"
+  },
+  {
+  "ParameterKey": "ECRRepositoryName",
+  "ParameterValue": "web"
+  },
+  {
+  "ParameterKey": "Environment",
+  "ParameterValue": "Poc"
+  },
+  {
+  "ParameterKey": "TestAccount1",
+  "ParameterValue": "<TESTACCOUNT1>"
+  },
+  {
+  "ParameterKey": "TestAccount2",
+  "ParameterValue": "<TESTACCOUNT2>"
+  },
+  {
+  "ParameterKey": "TestAccount3",
+  "ParameterValue": "<TESTACCOUNT3>"
+  },
+  {
+  "ParameterKey": "ToolsAccount",
+  "ParameterValue": "<TOOLSACCOUNT>"
+  },
+  {
+  "ParameterKey": "CodeCommitAccount",
+  "ParameterValue": "<CODECOMMITACCOUNT>"
+  }
+]

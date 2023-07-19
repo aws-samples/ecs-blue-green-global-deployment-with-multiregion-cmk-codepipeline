@@ -1,0 +1,91 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Create CMK for artifacts encryption in codepipeline
+Parameters:
+  CodeCommitAccount:
+    Description: AWS AccountNumber for codecommit repository
+    Type: Number
+  TestAccount1:
+    Description: AWS AccountNumber for test account 1
+    Type: Number
+  TestAccount2:
+    Description: AWS AccountNumber for test account 2
+    Type: Number
+  TestAccount3:
+    Description: AWS AccountNumber for test account 3
+    Type: Number
+  ToolsAccount:
+    Description: AWS AccountNumber for tools account
+    Type: Number
+  Environment:
+    Description: Name of the Project
+    Type: String
+    Default: sample-ecs
+  CodeBuildCondition:
+    Description: Conditionally adds the access required by code build project role
+    Type: String
+    Default: false
+Conditions:
+  AddCodeBuildResource: !Equals [ !Ref CodeBuildCondition, true ]
+Resources:
+  KMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: Used by Assumed Roles in Test accounts to Encrypt/Decrypt code
+      EnableKeyRotation: true
+      #MultiRegion: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Id: !Ref AWS::StackName
+        Statement:
+          -
+            Sid: Allows admin of the key
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action:
+              - "kms:Create*"
+              - "kms:Describe*"
+              - "kms:Enable*"
+              - "kms:List*"
+              - "kms:Put*"
+              - "kms:Update*"
+              - "kms:Revoke*"
+              - "kms:Disable*"
+              - "kms:Get*"
+              - "kms:Delete*"
+              - "kms:ScheduleKeyDeletion"
+              - "kms:CancelKeyDeletion"
+            Resource: "*"
+          -
+            Sid: Allow use of the key for CryptoGraphy Lambda
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:aws:iam::${TestAccount1}:root
+                - !Sub arn:aws:iam::${TestAccount2}:root
+                - !Sub arn:aws:iam::${TestAccount3}:root
+                - !Sub arn:aws:iam::${CodeCommitAccount}:root
+                - !If
+                  - AddCodeBuildResource
+                  - !Sub arn:aws:iam::${ToolsAccount}:role/${Environment}-CodeBuildRole
+                  - !Ref AWS::NoValue
+                - !If
+                  - AddCodeBuildResource
+                  - !Sub arn:aws:iam::${ToolsAccount}:role/${Environment}-codepipeline-role
+                  - !Ref AWS::NoValue
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: "*"
+  KMSAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub alias/ecs-codepipeline-crossaccounts
+      TargetKeyId: !Ref KMSKey
+
+Outputs:
+  CMK:
+    Value: !GetAtt [KMSKey,Arn]

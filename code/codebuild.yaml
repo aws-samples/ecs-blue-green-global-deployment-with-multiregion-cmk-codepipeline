@@ -1,0 +1,77 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates a codebuild project setup
+
+Parameters:
+  EnvironmentName:
+    Description: An environment name that is prefixed to resource names
+    Type: String
+    Default: Poc
+  CodeCommitRepoName:
+    Type: String
+    Description: CodeCommit repository name that will be used for build project
+  ToolsAccount:
+    Type: String
+    Description: AWS Account id that contains CodeCommit repository and ECR
+  ECRRepositoryName:
+    Type: String
+    Description: ECR Repository name that contains application image
+  CodeCommitRegion:
+    Type: String
+    Description: The AWS Region that contains codecommit repository
+  APPACCOUNTID:
+    Description: AWS AccountNumber for deploying the build
+    Type: Number
+  CMKARN:
+    Description: CMK ARN to be used for encryption
+    Type: String
+
+Resources:
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name:
+        Fn::Sub: ${EnvironmentName}-${AWS::Region}
+      Description: Build to create a docker image and push that to ECR repository
+      ServiceRole: !Sub arn:aws:iam::${AWS::AccountId}:role/${EnvironmentName}-CodeBuildRole
+      Artifacts:
+        Type: "NO_ARTIFACTS"
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:6.0
+        ImagePullCredentialsType: "CODEBUILD"
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: IMAGE_TAG
+            Value: latest
+          - Name: IMAGE_REPO_NAME
+            Value: !Ref ECRRepositoryName
+          - Name: APP_ACCOUNT_ID
+            Value: !Sub ${APPACCOUNTID}
+      Source:
+        Location:
+          Fn::Sub: https://git-codecommit.${CodeCommitRegion}.amazonaws.com/v1/repos/${CodeCommitRepoName}
+        Type: CODECOMMIT
+        GitCloneDepth: 1
+        GitSubmodulesConfig:
+         FetchSubmodules: false
+        InsecureSsl: false
+      TimeoutInMinutes: 15
+      EncryptionKey: !Ref CMKARN
+      BadgeEnabled: false
+      LogsConfig:
+        CloudWatchLogs:
+          Status: "ENABLED"
+        S3Logs:
+          Status: "DISABLED"
+          EncryptionDisabled: false
+      Visibility: "PRIVATE"
+      Tags:
+        - Key: Name
+          Value:
+            Fn::Sub: ${EnvironmentName}-${AWS::StackName}
+
+Outputs:
+  CodeBuildName:
+    Value: !Ref CodeBuildProject
+    Description: CodeBuild Project name details

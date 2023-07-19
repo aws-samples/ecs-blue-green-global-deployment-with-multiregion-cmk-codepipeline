@@ -1,0 +1,263 @@
+#  Copyright 2017 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#  Licensed under the Apache License, Version 2.0 (the "License"). You may not use this file except in compliance with
+#  the License. A copy of the License is located at
+#      http://aws.amazon.com/apache2.0/
+#  or in the "license" file accompanying this file. This file is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+#  CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and
+#  limitations under the License.
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates a Primary Key CMK in KMS and grants access to other accounts
+Parameters:
+  CodeCommitAccount:
+    Description: AWS AccountNumber for codecommit repository
+    Type: Number
+  TestAccount1:
+    Description: AWS AccountNumber for test account 1
+    Type: Number
+  TestAccount2:
+    Description: AWS AccountNumber for test account 2
+    Type: Number
+  TestAccount3:
+    Description: AWS AccountNumber for test account 3
+    Type: Number
+  EnvironmentName:
+    Description: An environment name that is prefixed to resource names
+    Type: String
+    Default: Poc
+  CodeBuildCondition:
+    Description: Conditionally adds the access required by code build project role
+    Type: String
+    Default: false
+Conditions:
+  AddCodeBuildResource: !Equals [ !Ref CodeBuildCondition, true ]
+Resources:
+  KMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: Used by Assumed Roles in Test accounts to Encrypt/Decrypt code
+      EnableKeyRotation: true
+      MultiRegion: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Id: !Ref AWS::StackName
+        Statement:
+          -
+            Sid: Allows admin of the key
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action:
+              - "kms:Create*"
+              - "kms:Describe*"
+              - "kms:Enable*"
+              - "kms:List*"
+              - "kms:Put*"
+              - "kms:Update*"
+              - "kms:Revoke*"
+              - "kms:Disable*"
+              - "kms:Get*"
+              - "kms:Delete*"
+              - "kms:ScheduleKeyDeletion"
+              - "kms:CancelKeyDeletion"
+              - "kms:ReplicateKey"
+            Resource: "*"
+          -
+            Sid: Allow use of the key for code service IAM roles
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Sub arn:aws:iam::${TestAccount1}:root
+                - !Sub arn:aws:iam::${TestAccount2}:root
+                - !Sub arn:aws:iam::${TestAccount3}:root
+                - !Sub arn:aws:iam::${CodeCommitAccount}:root
+                - !If
+                  - AddCodeBuildResource
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/${EnvironmentName}-CodeBuildRole
+                  - !Ref AWS::NoValue
+                - !If
+                  - AddCodeBuildResource
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/${EnvironmentName}-codepipeline-role
+                  - !Ref AWS::NoValue
+                - !If
+                  - AddCodeBuildResource
+                  - !Sub arn:aws:iam::${TestAccount1}:role/${EnvironmentName}codedeployRole
+                  - !Ref AWS::NoValue
+                - !If
+                  - AddCodeBuildResource
+                  - !Sub arn:aws:iam::${TestAccount1}:role/${EnvironmentName}-codepipeline-role
+                  - !Ref AWS::NoValue
+                - !If
+                  - AddCodeBuildResource
+                  - !Sub arn:aws:iam::${TestAccount2}:role/${EnvironmentName}codedeployRole
+                  - !Ref AWS::NoValue
+                - !If
+                  - AddCodeBuildResource
+                  - !Sub arn:aws:iam::${TestAccount2}:role/${EnvironmentName}-codepipeline-role
+                  - !Ref AWS::NoValue
+                - !If
+                  - AddCodeBuildResource
+                  - !Sub arn:aws:iam::${TestAccount3}:role/${EnvironmentName}codedeployRole
+                  - !Ref AWS::NoValue
+                - !If
+                  - AddCodeBuildResource
+                  - !Sub arn:aws:iam::${TestAccount3}:role/${EnvironmentName}-codepipeline-role
+                  - !Ref AWS::NoValue
+            Action:
+              - "kms:Encrypt"
+              - "kms:Decrypt"
+              - "kms:ReEncrypt*"
+              - "kms:GenerateDataKey*"
+              - "kms:DescribeKey"
+            Resource: "*"
+  KMSAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub alias/ecs-codepipeline-crossaccounts
+      TargetKeyId: !Ref KMSKey
+
+  KMSReplicaKeyStack:
+    Type: AWS::CloudFormation::StackSet
+    Properties:
+      Description: Create replica keys in all deployment regions
+      PermissionModel: SELF_MANAGED
+      OperationPreferences: {
+        "FailureToleranceCount": 0,
+        "RegionConcurrencyType": PARALLEL
+      }
+      Parameters:
+        - ParameterKey: CMKARN
+          ParameterValue: !GetAtt [KMSKey,Arn]
+        - ParameterKey: CodeCommitAccount
+          ParameterValue: !Ref CodeCommitAccount
+        - ParameterKey: TestAccount1
+          ParameterValue: !Ref TestAccount1
+        - ParameterKey: TestAccount2 
+          ParameterValue: !Ref TestAccount2
+        - ParameterKey: TestAccount3
+          ParameterValue: !Ref TestAccount3
+        - ParameterKey: EnvironmentName 
+          ParameterValue: !Ref EnvironmentName
+        - ParameterKey: CodeBuildCondition 
+          ParameterValue: !Ref CodeBuildCondition
+      StackInstancesGroup:
+        - DeploymentTargets:
+            Accounts:
+              - !Ref "AWS::AccountId"
+          Regions: #Regions hard coded as of now to create replica keys
+           - eu-central-1
+           - us-east-1
+      StackSetName: Multi-region-CMK
+      TemplateBody: |
+          Description: Creates a replica CMK in KMS and grants access to other accounts
+          Parameters:
+            CMKARN:
+              Description: Primary Key ARN
+              Type: String
+            CodeCommitAccount:
+              Description: AWS AccountNumber for codecommit repository
+              Type: Number
+            TestAccount1:
+              Description: AWS AccountNumber for test account 1
+              Type: Number
+            TestAccount2:
+              Description: AWS AccountNumber for test account 2
+              Type: Number
+            TestAccount3:
+              Description: AWS AccountNumber for test account 3
+              Type: Number
+            CodeBuildCondition:
+              Description: Conditionally adds the access required by code build project role
+              Type: String
+              Default: false
+            EnvironmentName:
+              Description: An environment name that is prefixed to resource names
+              Type: String
+              Default: Poc
+          Conditions:
+            AddCodeBuildResource: !Equals [ !Ref CodeBuildCondition, true ]
+          Resources:
+            KMSKey:
+              Type: AWS::KMS::ReplicaKey
+              Properties:
+                Description: Replica key created in other regions for artifacts 
+                PrimaryKeyArn: !Ref CMKARN
+                KeyPolicy:
+                    Version: "2012-10-17"
+                    Id: !Ref AWS::StackName
+                    Statement:
+                      -
+                        Sid: Allows admin of the key
+                        Effect: Allow
+                        Principal:
+                          AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+                        Action:
+                          - "kms:Create*"
+                          - "kms:Describe*"
+                          - "kms:Enable*"
+                          - "kms:List*"
+                          - "kms:Put*"
+                          - "kms:Update*"
+                          - "kms:Revoke*"
+                          - "kms:Disable*"
+                          - "kms:Get*"
+                          - "kms:Delete*"
+                          - "kms:ScheduleKeyDeletion"
+                          - "kms:CancelKeyDeletion"
+                        Resource: "*"
+                      -
+                        Sid: Allow use of the key for code service IAM roles
+                        Effect: Allow
+                        Principal:
+                          AWS:
+                            - !Sub arn:aws:iam::${TestAccount1}:root
+                            - !Sub arn:aws:iam::${TestAccount2}:root
+                            - !Sub arn:aws:iam::${TestAccount3}:root
+                            - !Sub arn:aws:iam::${CodeCommitAccount}:root
+                            - !If
+                              - AddCodeBuildResource
+                              - !Sub arn:aws:iam::${AWS::AccountId}:role/${EnvironmentName}-CodeBuildRole
+                              - !Ref AWS::NoValue
+                            - !If
+                              - AddCodeBuildResource
+                              - !Sub arn:aws:iam::${AWS::AccountId}:role/${EnvironmentName}-codepipeline-role
+                              - !Ref AWS::NoValue
+                            - !If
+                              - AddCodeBuildResource
+                              - !Sub arn:aws:iam::${TestAccount1}:role/${EnvironmentName}codedeployRole
+                              - !Ref AWS::NoValue
+                            - !If
+                              - AddCodeBuildResource
+                              - !Sub arn:aws:iam::${TestAccount1}:role/${EnvironmentName}-codepipeline-role
+                              - !Ref AWS::NoValue
+                            - !If
+                              - AddCodeBuildResource
+                              - !Sub arn:aws:iam::${TestAccount2}:role/${EnvironmentName}codedeployRole
+                              - !Ref AWS::NoValue
+                            - !If
+                              - AddCodeBuildResource
+                              - !Sub arn:aws:iam::${TestAccount2}:role/${EnvironmentName}-codepipeline-role
+                              - !Ref AWS::NoValue
+                            - !If
+                              - AddCodeBuildResource
+                              - !Sub arn:aws:iam::${TestAccount3}:role/${EnvironmentName}codedeployRole
+                              - !Ref AWS::NoValue
+                            - !If
+                              - AddCodeBuildResource
+                              - !Sub arn:aws:iam::${TestAccount3}:role/${EnvironmentName}-codepipeline-role
+                              - !Ref AWS::NoValue
+                        Action:
+                          - kms:Encrypt
+                          - kms:Decrypt
+                          - kms:ReEncrypt*
+                          - kms:GenerateDataKey*
+                          - kms:DescribeKey
+                        Resource: "*"
+            KMSAlias:
+                Type: AWS::KMS::Alias
+                Properties:
+                  AliasName: !Sub alias/ecs-codepipeline-crossaccounts
+                  TargetKeyId: !Ref KMSKey
+Outputs:
+  CMK:
+    Value: !GetAtt [KMSKey,Arn]

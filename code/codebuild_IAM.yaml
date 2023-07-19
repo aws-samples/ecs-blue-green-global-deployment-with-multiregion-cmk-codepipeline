@@ -1,0 +1,84 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CodeBuild IAM Setup template
+Parameters:
+  EnvironmentName:
+    Description: An environment name that is prefixed to resource names
+    Type: String
+    Default: Poc
+
+Resources:
+  CodeBuildRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName:
+        Fn::Sub: ${EnvironmentName}-CodeBuildRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "codebuild.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+      Policies:
+        -
+          PolicyName: "CodeBuildAccessPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                  - "codecommit:ListBranches"
+                  - "codecommit:ListRepositories"
+                  - "codecommit:BatchGetRepositories"
+                  - "codecommit:Get*"
+                  - "codecommit:GitPull"
+                Resource: 
+                - "arn:aws:codecommit:ap-south-1:*:*"
+                - "arn:aws:codecommit:eu-central-1:*:*"
+                - "arn:aws:codecommit:us-east-1:*:*"
+              -
+                Effect: "Allow"
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: 
+                - "arn:aws:logs:ap-south-1:*:*"
+                - "arn:aws:logs:eu-central-1:*:*"
+                - "arn:aws:logs:us-east-1:*:*"
+              -
+                Effect: "Allow"
+                Action:
+                  - "s3:PutObject"
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:ListBucket"
+                Resource: "arn:aws:s3::*:*"
+              -
+                Effect: Allow
+                Action:
+                - kms:Create*
+                - kms:Delete*
+                - kms:Describe*
+                - kms:Generate*
+                - kms:List*
+                - kms:TagResource
+                - kms:UntagResource
+                - kms:Get*
+                - kms:Enable*
+                - kms:Disable*
+                - kms:Encrypt*
+                - kms:Replicate*
+                - kms:Put*
+                - kms:Decrypt
+                Resource: 
+                - "arn:aws:kms:ap-south-1:*:*"
+                - "arn:aws:kms:eu-central-1:*:*"
+                - "arn:aws:kms:us-east-1:*:*"
+      ManagedPolicyArns:
+      - 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess'

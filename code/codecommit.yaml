@@ -1,0 +1,201 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates a codecommit repository
+
+Parameters:
+  EnvironmentName:
+    Description: An environment name that is prefixed to resource names
+    Type: String
+    Default: Poc
+  ToolsAccount:
+    Description: AWS AccountNumber for tools account
+    Type: Number
+  CodeCommitReponame:
+    Description: Codecommit repository name
+    Type: String
+
+Resources:
+  MainCodeRepo:
+    Type: AWS::CodeCommit::Repository
+    Properties:
+      RepositoryName: !Ref CodeCommitReponame
+      RepositoryDescription: This is the main repository for storing all codes.
+      Tags:
+      - Key: Name
+        Value: !Ref EnvironmentName
+      Triggers:
+      - Branches:
+          - dev
+        DestinationArn: !GetAtt PRLambda.Arn
+        Events:
+          - updateReference
+        Name: PRCreation
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ECSToolsAcctCodePipelineCodeCommitRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Ref ToolsAccount
+            Action:
+              - sts:AssumeRole
+      Path: /
+
+  Policy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: ECSToolsAcctCodePipelineCodeCommitPolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Action:
+              - codecommit:BatchGetRepositories
+              - codecommit:Get*
+              - codecommit:GitPull
+              - codecommit:List*
+              - codecommit:CancelUploadArchive
+              - codecommit:UploadArchive
+            Resource: "arn:aws:codecommit::*:*"
+          - 
+            Effect: Allow
+            Action:
+              - s3:Create*
+              - s3:Get*
+              - s3:Put*
+              - s3:Delete*
+              - s3:Update*
+            Resource: "arn:aws:s3::*:*"
+          -
+            Effect: Allow
+            Action:
+                - kms:Create*
+                - kms:Delete*
+                - kms:Describe*
+                - kms:Generate*
+                - kms:List*
+                - kms:TagResource
+                - kms:UntagResource
+                - kms:Get*
+                - kms:Enable*
+                - kms:Disable*
+                - kms:Encrypt*
+                - kms:Replicate*
+                - kms:Put*
+                - kms:Decrypt
+            Resource: "arn:aws:kms::*:*"
+      Roles:
+        -
+          !Ref Role
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: PRLambdaRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  LambdaPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: PRPolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Action:
+              - codecommit:CreatePullRequest
+              - codecommit:CreatePullRequest
+              - codecommit:GetPullRequest
+              - codecommit:ListPullRequests
+            Resource: "arn:aws:codecommit::*:*" 
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:DescribeLogStreams
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: "arn:aws:logs::*:*"
+          -
+            Effect: Allow
+            Action:
+              - kms:Create*
+              - kms:Delete*
+              - kms:Describe*
+              - kms:Generate*
+              - kms:List*
+              - kms:TagResource
+              - kms:UntagResource
+              - kms:Get*
+            Resource: "arn:aws:kms::*:*"
+      Roles:
+        -
+          !Ref LambdaRole
+  
+  PRLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      ReservedConcurrentExecutions: 5
+      Runtime: python3.10
+      Role: !GetAtt LambdaRole.Arn
+      Handler: index.lambda_handler
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+
+          codecommit = boto3.client('codecommit')
+
+          def lambda_handler(event, context):
+              reponame = event['Records'][0]['eventSourceARN'].split(':')[-1]
+              sourcebranch = event['Records'][0]['codecommit']['references'][0]['ref']
+              listpr = codecommit.list_pull_requests(repositoryName=reponame,pullRequestStatus='OPEN')
+              pr_open_status = False
+              for pr in listpr['pullRequestIds']:
+                  getpr = codecommit.get_pull_request(pullRequestId=pr)
+                  print(getpr['pullRequest']['pullRequestTargets'][0]['repositoryName'])
+                  print(getpr['pullRequest']['pullRequestTargets'][0]['destinationReference'])
+                  if getpr['pullRequest']['pullRequestTargets'][0]['sourceReference'] == sourcebranch and getpr['pullRequest']['pullRequestTargets'][0]['destinationReference'] == 'refs/heads/main':
+                      print("PR already open.")
+                      pr_open_status = True
+                      break
+              
+              if pr_open_status == False:
+                  create_pr = codecommit.create_pull_request(title='Automated PR created for the commit '+event['Records'][0]['codecommit']['references'][0]['commit']+' by the user '+event['Records'][0]['userIdentityARN'],
+                  targets=[
+                  {
+                      'repositoryName': reponame,
+                      'sourceReference': sourcebranch,
+                      'destinationReference': 'main'
+                  },],)
+
+      Description: Invoke a function during stack creation.
+
+  LambdaPermissionPolicy:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref PRLambda
+      Principal: "codecommit.amazonaws.com"
+      SourceArn: !GetAtt MainCodeRepo.Arn
+Outputs:
+  CodeCommitRepo:
+    Value:
+      Fn::GetAtt: [ MainCodeRepo, Name ]
+    Description: Code Commit repository details to use that in other stacks

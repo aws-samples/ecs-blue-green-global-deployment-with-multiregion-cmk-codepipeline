@@ -1,0 +1,10 @@
+version: 0.0
+Resources:
+  - TargetService:
+      Type: AWS::ECS::Service
+      Properties:
+        TaskDefinition: "arn:aws:ecs:ap-south-1:<TESTACCOUNT1>:task-definition/Poc:2"
+        LoadBalancerInfo:
+          ContainerName: "QA"
+          ContainerPort: 80
+        PlatformVersion: "LATEST"

@@ -1,0 +1,195 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: |
+ Master stack to create all resources from nested stack
+ Master Stack usec for end to end setup of below components
+ VPC - Subnets, NAT, IGW
+ ECR - Single registry
+ ECS - Cluster, Task Definition, Fargate Service, Security Group to allow traffic from LB
+ ALB - Application Load Balancer, Listener, Target Groups
+Parameters:
+  Environment:
+    Description: An environment name that is tagged to resource names for identification
+    Type: String
+    Default: Poc
+  EnvironmentType:
+    Description: An environment name that is tagged to resource names for identification (QA/Staging/Production)
+    Type: String
+    AllowedValues:
+    - QA
+    - Staging
+    - Production
+  ECRRepositoryName:
+      Type: String
+      Description: The ECR Repository name to be defined for ECR
+  Vpc:
+    Description: Please enter the IP range (CIDR notation) for this VPC
+    Type: String
+    Default: 10.192.0.0/16
+  PublicSubnet1:
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the first Availability Zone
+    Type: String
+    Default: 10.192.10.0/24
+  PublicSubnet2:
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the second Availability Zone
+    Type: String
+    Default: 10.192.11.0/24
+  PrivateSubnet1:
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the first Availability Zone
+    Type: String
+    Default: 10.192.20.0/24
+  PrivateSubnet2:
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the second Availability Zone
+    Type: String
+    Default: 10.192.21.0/24
+  ToolsAccount:
+    Description: Tools Account id that has the codepipeline
+    Type: String
+
+Resources:
+  #VPC used is common across all environments - QA, Staging and Production. All other resources are isolated.
+  VPCStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "VPC.yaml"
+      Parameters:
+        VpcCIDR: !Ref Vpc
+        PublicSubnet1CIDR: !Ref PublicSubnet1
+        PublicSubnet2CIDR: !Ref PublicSubnet2
+        PrivateSubnet1CIDR: !Ref PrivateSubnet1
+        PrivateSubnet2CIDR: !Ref PrivateSubnet2
+        EnvironmentName: !Ref Environment
+      Tags:
+        - Key: Name
+          Value: !Ref Environment
+
+  QAALBStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "ALB.yaml"
+      Parameters:
+        VpcID:
+          Fn::GetAtt:
+          - VPCStack
+          - Outputs.VPC
+        ALBPublicSubnet1:
+          Fn::GetAtt:
+          - VPCStack
+          - Outputs.PublicSubnet1
+        ALBPublicSubnet2:
+          Fn::GetAtt:
+          - VPCStack
+          - Outputs.PublicSubnet2
+        EnvironmentName: !Ref Environment
+        EnvironmentType: QA
+        VPCCidr: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Ref Environment
+        - Key: EnvironmentType
+          Value: !Sub ${EnvironmentType}
+
+  ECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref ECRRepositoryName
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      RepositoryPolicyText:
+        Version: '2012-10-17'
+        Statement:
+          - 
+            Sid: AllowPushPull
+            Effect: Allow
+            Principal:
+              AWS: 
+               - !Sub "arn:aws:iam::${ToolsAccount}:root"
+            Action:
+              - 'ecr:GetDownloadUrlForLayer'
+              - 'ecr:BatchGetImage'
+              - 'ecr:BatchCheckLayerAvailability'
+              - 'ecr:PutImage'
+              - 'ecr:InitiateLayerUpload'
+              - 'ecr:UploadLayerPart'
+              - 'ecr:CompleteLayerUpload'
+
+  QAECSStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "ECS.yaml"
+      Parameters:
+        VpcID:
+          Fn::GetAtt:
+          - VPCStack
+          - Outputs.VPC
+        ECSPrivateSubnet1:
+          Fn::GetAtt:
+          - VPCStack
+          - Outputs.PrivateSubnet1
+        ECSPrivateSubnet2:
+          Fn::GetAtt:
+          - VPCStack
+          - Outputs.PrivateSubnet2
+        EnvironmentName: !Ref Environment
+        EnvironmentType: QA
+        ImageRegistryName: !Ref ECRRepository
+        RegistryAccountid: !Ref "AWS::AccountId"
+        ImageName: "web" #Hard coded as of now can be changed to use parameters later. Need to understand requirement
+        ImageRegion: !Ref "AWS::Region"
+        LBSecurityGroup:
+          Fn::GetAtt:
+          - QAALBStack
+          - Outputs.ALBSecurityGroup
+        TargetGroup1:
+          Fn::GetAtt:
+          - QAALBStack
+          - Outputs.ECSTargetGroup1
+        TargetGroup2:
+          Fn::GetAtt:
+          - QAALBStack
+          - Outputs.ECSTargetGroup2
+      Tags:
+        - Key: Name
+          Value: !Ref Environment
+        - Key: EnvironmentType
+          Value: !Sub ${EnvironmentType}
+
+Outputs:
+  ALBListenerFQDN:
+    Description: Application Load balancer FQDN to access ECS Service
+    Value:
+      Fn::GetAtt:
+      - QAALBStack
+      - Outputs.ALBListenerFQDN
+  ECRReponame:
+    Description: The ECR Repository name
+    Value: !Ref ECRRepository
+    Export:
+      Name:
+        'Fn::Sub': '${AWS::StackName}-ECRRepository'
+  ECSClustername:
+    Description: The ECS Cluster name
+    Value:
+      Fn::GetAtt:
+      - QAECSStack
+      - Outputs.ECSCluster
+    Export:
+      Name:
+        'Fn::Sub': '${AWS::StackName}-ECSCluster-${EnvironmentType}'
+  ECSServicename:
+    Description: The ECS Cluster name
+    Value:
+      Fn::GetAtt:
+      - QAECSStack
+      - Outputs.ECSService
+    Export:
+      Name:
+        'Fn::Sub': '${AWS::StackName}-ECSService-${EnvironmentType}'
+  ALBListener:
+    Description: ALB Listener ARN to pass to CodeDeploy Deployment Group
+    Value:
+      Fn::GetAtt:
+      - QAALBStack
+      - Outputs.ALBListenerARN
+    Export:
+      Name:
+        'Fn::Sub': '${AWS::StackName}-ALBListener-${EnvironmentType}'

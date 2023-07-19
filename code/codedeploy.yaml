@@ -1,0 +1,233 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates a codedeploy setup for ECS cluster using application
+
+Parameters:
+  EnvironmentName:
+    Description: An environment name that is prefixed to resource names.
+    Type: String
+    Default: Poc
+  # ECSCluster:
+  #   Type: String
+  #   Description: ECS Cluster name to deploy the application
+  # ECSService:
+  #   Type: String
+  #   Description: ECS Service name to deploy the application
+  masterInfrastackname:
+    Type: String
+    Description: The master infra stack name that created VPC, ECS and ALB configuration.
+  EnvironmentType:
+    Description: An environment name that is tagged to resource names for identification
+    Type: String
+    AllowedValues:
+    - QA
+    - Staging
+    - Production
+    Default: QA
+  # ALBListenerARN:
+  #   Description: ALB Listener ARN that has to be used for ECS Cluster Blue/Green deployment
+  #   Type: String
+  ToolsAccount:
+    Description: Tools Account that has the codepipeline
+    Type: String
+
+Resources:
+  CodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: !Ref EnvironmentName
+      ComputePlatform: ECS
+      # Tags:
+      # - Key: Name
+      #   Value: !Ref EnvironmentName
+  CodeDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['', [!Ref EnvironmentName, codedeployRole]]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codedeploy.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS'
+        - 'arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole'
+  CodeDeployGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref CodeDeployApplication
+      DeploymentGroupName: !Ref EnvironmentType
+      DeploymentConfigName: "CodeDeployDefault.ECSAllAtOnce"
+      BlueGreenDeploymentConfiguration:
+          DeploymentReadyOption:
+            ActionOnTimeout: CONTINUE_DEPLOYMENT
+            WaitTimeInMinutes: 0
+          TerminateBlueInstancesOnDeploymentSuccess:
+            Action: TERMINATE
+            TerminationWaitTimeInMinutes: 5
+      DeploymentStyle:
+          DeploymentOption: WITH_TRAFFIC_CONTROL
+          DeploymentType: BLUE_GREEN
+      ServiceRoleArn:
+        Fn::GetAtt: [ CodeDeployRole, Arn ]
+      ECSServices:
+      - ClusterName:
+          Fn::ImportValue:
+           !Sub "${masterInfrastackname}-ECSCluster-${EnvironmentType}"
+        ServiceName:
+          Fn::ImportValue:
+           !Sub "${masterInfrastackname}-ECSService-${EnvironmentType}"
+      LoadBalancerInfo:
+        # ElbInfoList:
+        # - Name: !Sub ${EnvironmentName}-${EnvironmentType}-ALB
+        TargetGroupPairInfoList:
+        - TargetGroups:
+           - Name: !Sub ${EnvironmentName}-${EnvironmentType}-TG1
+           - Name: !Sub ${EnvironmentName}-${EnvironmentType}-TG2
+          ProdTrafficRoute:
+            ListenerArns:
+            - Fn::ImportValue:
+                !Sub "${masterInfrastackname}-ALBListener-${EnvironmentType}"
+  CodePipelineECSRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvironmentName}-codepipeline-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              AWS:
+                - !Ref ToolsAccount
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS'
+        - 'arn:aws:iam::aws:policy/AmazonECS_FullAccess'
+  CodePipelineECSPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub ${EnvironmentName}-codepipeline-policy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - 'iam:PassRole'
+            Resource: "arn:aws:iam::*:*"
+            Effect: Allow
+            Condition:
+              StringEqualsIfExists:
+                'iam:PassedToService':
+                  - cloudformation.amazonaws.com
+                  - ecs-tasks.amazonaws.com
+          - Action:
+              - 'codecommit:CancelUploadArchive'
+              - 'codecommit:GetBranch'
+              - 'codecommit:GetCommit'
+              - 'codecommit:GetRepository'
+              - 'codecommit:GetUploadArchiveStatus'
+              - 'codecommit:UploadArchive'
+            Resource: 
+            - "arn:aws:codecommit:ap-south-1:*:*"
+            - "arn:aws:codecommit:eu-central-1:*:*"
+            - "arn:aws:codecommit:us-east-1:*:*"
+            Effect: Allow
+          - Action:
+              - 'codedeploy:CreateDeployment'
+              - 'codedeploy:GetApplication'
+              - 'codedeploy:GetApplicationRevision'
+              - 'codedeploy:GetDeployment'
+              - 'codedeploy:GetDeploymentConfig'
+              - 'codedeploy:RegisterApplicationRevision'
+            Resource: 
+            - !Sub "arn:aws:codedeploy:${AWS::Region}:*:*"
+            Effect: Allow
+          - Action:
+              - elasticloadbalancing:Create*
+              - elasticloadbalancing:Delete*
+              - elasticloadbalancing:Describe*
+              - elasticloadbalancing:Modify*
+              - elasticloadbalancing:Register*
+              - elasticloadbalancing:Deregister*
+            Effect: Allow
+            Resource: 
+            - !Sub "arn:aws:elasticloadbalancing:${AWS::Region}:*:*"
+          - Action:
+              - s3:Create*
+              - s3:Get*
+              - s3:Put*
+              - s3:Delete*
+              - s3:Update*
+            Effect: Allow
+            Resource: "arn:aws:s3::*:*"
+          - Action:
+              - ecs:Create*
+              - ecs:Delete*
+              - ecs:Describe*
+              - ecs:List*
+              - ecs:Register*
+              - ecs:Run*
+              - ecs:Stop*
+              - ecs:Start*
+              - ecs:Deregister*
+            Resource: 
+            - !Sub "arn:aws:ecs:${AWS::Region}:*:*"
+            Effect: Allow
+          - Action:
+              - 'cloudformation:CreateStack'
+              - 'cloudformation:DeleteStack'
+              - 'cloudformation:DescribeStacks'
+              - 'cloudformation:UpdateStack'
+              - 'cloudformation:CreateChangeSet'
+              - 'cloudformation:DeleteChangeSet'
+              - 'cloudformation:DescribeChangeSet'
+              - 'cloudformation:ExecuteChangeSet'
+              - 'cloudformation:SetStackPolicy'
+              - 'cloudformation:ValidateTemplate'
+            Resource: 
+            - !Sub "arn:aws:cloudformation:${AWS::Region}:*:*"
+            Effect: Allow
+          - Action:
+              - 'codebuild:BatchGetBuilds'
+              - 'codebuild:StartBuild'
+              - 'codebuild:BatchGetBuildBatches'
+              - 'codebuild:StartBuildBatch'
+            Resource: 
+            - !Sub "arn:aws:codebuild:${AWS::Region}:*:*"
+            Effect: Allow
+          - Effect: Allow
+            Action:
+              - 'ecr:DescribeImages'
+            Resource: 
+            - !Sub "arn:aws:ecr:${AWS::Region}:*:*"
+          -
+            Effect: Allow
+            Action:
+                - kms:Create*
+                - kms:Delete*
+                - kms:Describe*
+                - kms:Generate*
+                - kms:List*
+                - kms:TagResource
+                - kms:UntagResource
+                - kms:Get*
+                - kms:Enable*
+                - kms:Disable*
+                - kms:Encrypt*
+                - kms:Replicate*
+                - kms:Put*
+                - kms:Decrypt
+            Resource: 
+            - !Sub "arn:aws:kms:${AWS::Region}:*:*"
+      Roles:
+        -
+          !Ref CodePipelineECSRole
+Outputs:
+  CDApplicationName:
+    Description: CodeDeploy Application name
+    Value: !Ref CodeDeployApplication
+  CDDeploymentGroup:
+    Description: CodeDeploy Deployment Group
+    Value: !Ref CodeDeployGroup

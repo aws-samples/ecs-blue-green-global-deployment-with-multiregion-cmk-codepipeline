@@ -1,0 +1,378 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creates a codepipeline  setup
+
+Parameters:
+  BucketStartName:
+    Description: Bucket starting name to use for artifacts. It will be suffixed with respective region name.
+    Type: String
+  EnvironmentName:
+    Description: An environment name that is prefixed to resource names
+    Type: String
+    Default: Poc
+  CodeCommitRepoName:
+    Type: String
+    Description: CodeCommit repository name that will be used for build project
+  # CodeBuildName:
+  #   Type: String
+  #   Description: Code Build project name
+  # CDApplicationName:
+  #   Type: String
+  #   Description: Code Deploy Application name
+  # CDDeploymentGroup:
+  #   Type: String
+  #   Description: Code Deploy Deployment Group
+  TestAccount1:
+    Description: AWS AccountNumber for test account 1
+    Type: Number
+  TestAccount2:
+    Description: AWS AccountNumber for test account 2
+    Type: Number
+  TestAccount3:
+    Description: AWS AccountNumber for test account 3
+    Type: Number
+  TestAccount1Region:
+    Description: AWS Region for test account 1
+    Type: String
+  TestAccount2Region:
+    Description: AWS Region for test account 2
+    Type: String
+  TestAccount3Region:
+    Description: AWS Region for test account 3
+    Type: String
+  CMKARNTools:
+    Description: ARN of the KMS CMK created in Tools account
+    Type: String
+  CMKARN1:
+    Description: ARN of the KMS CMK created in Test account1
+    Type: String
+  CMKARN2:
+    Description: ARN of the KMS CMK creates in Test account2
+    Type: String
+  CMKARN3:
+    Description: ARN of the KMS CMK creates in Test account3
+    Type: String
+  EnvironmentType:
+    Description: An environment name that is tagged to resource names for identification
+    Type: String
+    AllowedValues:
+    - QA
+    - Staging
+    - Production
+    Default: QA
+Resources:
+  CodePipelineRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName:
+        Fn::Sub: ${EnvironmentName}-codepipeline-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "codepipeline.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+      Policies:
+        -
+          PolicyName: "CodePipelineAccessPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+                - Action:
+                    - 'iam:PassRole'
+                  Resource: "arn:aws:iam::*:*"
+                  Effect: Allow
+                  Condition:
+                    StringEqualsIfExists:
+                      'iam:PassedToService':
+                        - cloudformation.amazonaws.com
+                        - ecs-tasks.amazonaws.com
+                - Action:
+                    - 'codecommit:CancelUploadArchive'
+                    - 'codecommit:GetBranch'
+                    - 'codecommit:GetCommit'
+                    - 'codecommit:GetRepository'
+                    - 'codecommit:GetUploadArchiveStatus'
+                    - 'codecommit:UploadArchive'
+                  Resource: !Sub "arn:aws:codecommit:${AWS::Region}:*:*"
+                  Effect: Allow
+                - Action:
+                    - 'codedeploy:CreateDeployment'
+                    - 'codedeploy:GetApplication'
+                    - 'codedeploy:GetApplicationRevision'
+                    - 'codedeploy:GetDeployment'
+                    - 'codedeploy:GetDeploymentConfig'
+                    - 'codedeploy:RegisterApplicationRevision'
+                  Resource: 
+                  - !Sub "arn:aws:codedeploy:${TestAccount1Region}:*:*"
+                  - !Sub "arn:aws:codedeploy:${TestAccount2Region}:*:*"
+                  - !Sub "arn:aws:codedeploy:${TestAccount3Region}:*:*"
+                  Effect: Allow
+                - Action:
+                   - elasticloadbalancing:Create*
+                   - elasticloadbalancing:Delete*
+                   - elasticloadbalancing:Describe*
+                   - elasticloadbalancing:Modify*
+                   - elasticloadbalancing:Register*
+                   - elasticloadbalancing:Deregister*
+                  Resource: 
+                  - !Sub "arn:aws:elasticloadbalancing:${TestAccount1Region}:*:*"
+                  - !Sub "arn:aws:elasticloadbalancing:${TestAccount2Region}:*:*"
+                  - !Sub "arn:aws:elasticloadbalancing:${TestAccount3Region}:*:*"
+                  Effect: Allow
+                - Action:
+                   - s3:Create*
+                   - s3:Get*
+                   - s3:Put*
+                   - s3:Delete*
+                   - s3:Update*
+                  Resource: "arn:aws:s3::*:*"
+                  Effect: Allow
+                - Action:
+                   - ecs:Create*
+                   - ecs:Delete*
+                   - ecs:Describe*
+                   - ecs:List*
+                   - ecs:Register*
+                   - ecs:Run*
+                   - ecs:Stop*
+                   - ecs:Start*
+                   - ecs:Deregister*
+                  Resource: 
+                  - !Sub "arn:aws:ecs:${TestAccount1Region}:*:*"
+                  - !Sub "arn:aws:ecs:${TestAccount2Region}:*:*"
+                  - !Sub "arn:aws:ecs:${TestAccount3Region}:*:*"
+                  Effect: Allow
+                - Action:
+                    - 'cloudformation:CreateStack'
+                    - 'cloudformation:DeleteStack'
+                    - 'cloudformation:DescribeStacks'
+                    - 'cloudformation:UpdateStack'
+                    - 'cloudformation:CreateChangeSet'
+                    - 'cloudformation:DeleteChangeSet'
+                    - 'cloudformation:DescribeChangeSet'
+                    - 'cloudformation:ExecuteChangeSet'
+                    - 'cloudformation:SetStackPolicy'
+                    - 'cloudformation:ValidateTemplate'
+                  Resource: 
+                  - !Sub "arn:aws:cloudformation:${TestAccount1Region}:*:*"
+                  - !Sub "arn:aws:cloudformation:${TestAccount2Region}:*:*"
+                  - !Sub "arn:aws:cloudformation:${TestAccount3Region}:*:*"
+                  Effect: Allow
+                - Action:
+                    - 'codebuild:BatchGetBuilds'
+                    - 'codebuild:StartBuild'
+                    - 'codebuild:BatchGetBuildBatches'
+                    - 'codebuild:StartBuildBatch'
+                  Resource: 
+                  - !Sub "arn:aws:codebuild:${TestAccount1Region}:*:*"
+                  - !Sub "arn:aws:codebuild:${TestAccount2Region}:*:*"
+                  - !Sub "arn:aws:codebuild:${TestAccount3Region}:*:*"
+                  Effect: Allow
+                - Effect: Allow
+                  Action:
+                    - 'ecr:DescribeImages'
+                  Resource: 
+                  - !Sub "arn:aws:ecr:${TestAccount1Region}:*:*"
+                  - !Sub "arn:aws:ecr:${TestAccount2Region}:*:*"
+                  - !Sub "arn:aws:ecr:${TestAccount3Region}:*:*"
+                -
+                  Effect: Allow
+                  Action:
+                    - 'sts:AssumeRole'
+                  Resource:
+                  - !Sub arn:aws:iam::${TestAccount1}:role/${EnvironmentName}-codepipeline-role
+                  - !Sub arn:aws:iam::${TestAccount2}:role/${EnvironmentName}-codepipeline-role
+                  - !Sub arn:aws:iam::${TestAccount3}:role/${EnvironmentName}-codepipeline-role
+
+
+  CodePipelinePipeline:
+      Type: "AWS::CodePipeline::Pipeline"
+      DependsOn: CodePipelineRole
+      Properties:
+          Name: !Sub ${EnvironmentName}
+          RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/${EnvironmentName}-codepipeline-role
+          ArtifactStores:
+              - Region: !Ref TestAccount1Region
+                ArtifactStore:
+                  Type: S3
+                  Location: !Sub '${BucketStartName}-${TestAccount1Region}'
+                  EncryptionKey:
+                    Id: !Ref CMKARN1
+                    Type: KMS
+              - Region: !Ref TestAccount2Region
+                ArtifactStore:
+                  Type: S3
+                  Location: !Sub '${BucketStartName}-${TestAccount2Region}'
+                  EncryptionKey:
+                    Id: !Ref CMKARN2
+                    Type: KMS
+              - Region: !Ref TestAccount3Region
+                ArtifactStore:
+                  Type: S3
+                  Location: !Sub '${BucketStartName}-${TestAccount3Region}'
+                  EncryptionKey:
+                    Id: !Ref CMKARN3
+                    Type: KMS
+              # - Region: !Sub '${AWS::Region}'
+              #   ArtifactStore:
+              #     Type: S3
+              #     Location: !Sub '${BucketStartName}-${AWS::Region}'
+              #     EncryptionKey:
+              #       Id: !Ref CMKARNTools
+              #       Type: KMS
+          Stages:
+            -
+              Name: "Source"
+              Actions:
+                -
+                  Name: "Source"
+                  ActionTypeId:
+                      Category: "Source"
+                      Owner: "AWS"
+                      Provider: "CodeCommit"
+                      Version: "1"
+                  Configuration:
+                      BranchName: "main"
+                      OutputArtifactFormat: "CODE_ZIP"
+                      PollForSourceChanges: "false"
+                      RepositoryName: !Ref CodeCommitRepoName
+                  OutputArtifacts:
+                    -
+                      Name: "SourceArtifact"
+                  Region: !Ref AWS::Region
+                  Namespace: "SourceVariables"
+                  RunOrder: 1
+            -
+              Name: "Build"
+              Actions:
+                -
+                  Name: "ECSBuild-IN"
+                  ActionTypeId:
+                      Category: "Build"
+                      Owner: "AWS"
+                      Provider: "CodeBuild"
+                      Version: "1"
+                  Configuration:
+                      #ProjectName: !Ref CodeBuildName
+                      ProjectName:
+                        Fn::Sub: ${EnvironmentName}-${TestAccount1Region}
+                  InputArtifacts:
+                    -
+                      Name: "SourceArtifact"
+                  OutputArtifacts:
+                    -
+                      Name: "BuildArtifact1"
+                  Region: !Ref TestAccount1Region
+                  Namespace: "BuildVariables1"
+                  RunOrder: 1
+                -
+                  Name: "ECSBuild-EU"
+                  ActionTypeId:
+                      Category: "Build"
+                      Owner: "AWS"
+                      Provider: "CodeBuild"
+                      Version: "1"
+                  Configuration:
+                      #ProjectName: !Ref CodeBuildName
+                      ProjectName:
+                        Fn::Sub: ${EnvironmentName}-${TestAccount2Region}
+                  InputArtifacts:
+                    -
+                      Name: "SourceArtifact"
+                  OutputArtifacts:
+                    -
+                      Name: "BuildArtifact2"
+                  Region: !Ref TestAccount2Region
+                  Namespace: "BuildVariables2"
+                  RunOrder: 1
+                -
+                  Name: "ECSBuild-US"
+                  ActionTypeId:
+                      Category: "Build"
+                      Owner: "AWS"
+                      Provider: "CodeBuild"
+                      Version: "1"
+                  Configuration:
+                      #ProjectName: !Ref CodeBuildName
+                      ProjectName:
+                        Fn::Sub: ${EnvironmentName}-${TestAccount3Region}
+                  InputArtifacts:
+                    -
+                      Name: "SourceArtifact"
+                  OutputArtifacts:
+                    -
+                      Name: "BuildArtifact3"
+                  Region: !Ref TestAccount3Region
+                  Namespace: "BuildVariables3"
+                  RunOrder: 1
+            -
+              Name: "Deploy"
+              Actions:
+                -
+                  Name: "ECSDeploy-IN"
+                  ActionTypeId:
+                      Category: "Deploy"
+                      Owner: "AWS"
+                      Provider: "CodeDeployToECS"
+                      Version: "1"
+                  Configuration:
+                      AppSpecTemplateArtifact: "SourceArtifact"
+                      AppSpecTemplatePath: !Sub "appspec_${TestAccount1}.yaml"
+                      ApplicationName: !Ref EnvironmentName
+                      DeploymentGroupName: !Ref EnvironmentType
+                      TaskDefinitionTemplateArtifact: "SourceArtifact"
+                      TaskDefinitionTemplatePath: !Sub "taskdef_${TestAccount1}.json"
+                  InputArtifacts:
+                    -
+                      Name: "SourceArtifact"
+                  Region: !Ref TestAccount1Region
+                  Namespace: "DeployVariables1"
+                  RunOrder: 1
+                  RoleArn: !Sub arn:aws:iam::${TestAccount1}:role/${EnvironmentName}-codepipeline-role
+                -
+                  Name: "ECSDeploy-EU"
+                  ActionTypeId:
+                      Category: "Deploy"
+                      Owner: "AWS"
+                      Provider: "CodeDeployToECS"
+                      Version: "1"
+                  Configuration:
+                      AppSpecTemplateArtifact: "SourceArtifact"
+                      AppSpecTemplatePath: !Sub "appspec_${TestAccount2}.yaml"
+                      ApplicationName: !Ref EnvironmentName
+                      DeploymentGroupName: !Ref EnvironmentType
+                      TaskDefinitionTemplateArtifact: "SourceArtifact"
+                      TaskDefinitionTemplatePath: !Sub "taskdef_${TestAccount2}.json"
+                  InputArtifacts:
+                    -
+                      Name: "SourceArtifact"
+                  Region: !Ref TestAccount2Region
+                  Namespace: "DeployVariables2"
+                  RunOrder: 1
+                  RoleArn: !Sub arn:aws:iam::${TestAccount2}:role/${EnvironmentName}-codepipeline-role
+                -
+                  Name: "ECSDeploy-US"
+                  ActionTypeId:
+                      Category: "Deploy"
+                      Owner: "AWS"
+                      Provider: "CodeDeployToECS"
+                      Version: "1"
+                  Configuration:
+                      AppSpecTemplateArtifact: "SourceArtifact"
+                      AppSpecTemplatePath: !Sub "appspec_${TestAccount3}.yaml"
+                      ApplicationName: !Ref EnvironmentName
+                      DeploymentGroupName: !Ref EnvironmentType
+                      TaskDefinitionTemplateArtifact: "SourceArtifact"
+                      TaskDefinitionTemplatePath: !Sub "taskdef_${TestAccount3}.json"
+                  InputArtifacts:
+                    -
+                      Name: "SourceArtifact"
+                  Region: !Ref TestAccount3Region
+                  Namespace: "DeployVariables3"
+                  RunOrder: 1
+                  RoleArn: !Sub arn:aws:iam::${TestAccount3}:role/${EnvironmentName}-codepipeline-role
