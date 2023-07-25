@@ -1,0 +1,311 @@
+Pre-requisites:
+----------------
+- Tools Account - CodePipeline is managed from this central account.
+- CodeCommit repository - Created in Tools account.
+- S3 bucket to package the templates in respective three test accounts and regions. (Referred in below steps as S3BUCKETNAMETESTACCOUNT1, S3BUCKETNAMETESTACCOUNT2 and S3BUCKETNAMETESTACCOUNT3)
+  Example: (Use a bucket name that is available)
+    ##In Test Account 1
+    aws s3 mb s3://ecs-codepipeline-xxxx-ap-south-1 --region ap-south-1
+    ##In Test Account 2
+    aws s3 mb s3://ecs-codepipeline-xxxx-eu-central-1 --region eu-central-1
+    ##In Test Account 3
+    aws s3 mb s3://ecs-codepipeline-xxxx-us-east-1 --region us-east-1
+- Test1, Test2, Test3 - Three test environment accounts across regions where ECS Fargate Service is deployed.
+
+
+The below steps have to be followed for the setup.
+
+Installation Steps:
+-------------------
+Export the below variables for convenience in all account sessions that are used for cloudformation stack deployment.
+NOTE: Please update  the bucket names that are created in respective regions and account details as required for the setup.
+export S3BUCKETNAMETESTACCOUNT1=ecs-codepipeline-xxxx-ap-south-1
+export S3BUCKETNAMETESTACCOUNT2=ecs-codepipeline-xxxx-eu-central-1
+export S3BUCKETNAMETESTACCOUNT3=ecs-codepipeline-xxxx-us-east-1
+
+#Define a random string to create artifact buckets as bucket name must be unique globally.
+export BUCKETSTARTNAME=ecs-codepipeline-artifacts-1999-xxxxx
+
+#Define the account ids and regions as required.
+export TOOLSACCOUNT=<TOOLSACCOUNT>
+export CODECOMMITACCOUNT=<CODECOMMITACCOUNT>
+export CODECOMMITREGION=ap-south-1
+export CODECOMMITREPONAME=Poc
+export TESTACCOUNT1=<TESTACCOUNT1>
+export TESTACCOUNT2=<TESTACCOUNT2>
+export TESTACCOUNT3=<TESTACCOUNT3>
+export TESTACCOUNT1REGION=ap-south-1
+export TESTACCOUNT2REGION=eu-central-1
+export TESTACCOUNT3REGION=us-east-1
+export TOOLSACCOUNTREGION=ap-south-1
+export ECRREPOSITORYNAME=web
+
+##In all three test accounts.##
+Step 1: Create the package for infrastructure setup and deploy. The templates are available inside Infra directory.
+##In TestAccount1##
+aws cloudformation package \
+    --template-file masterInfraStack.yaml \
+    --s3-bucket $S3BUCKETNAMETESTACCOUNT1 \
+    --s3-prefix infraStack \
+    --region $TESTACCOUNT1REGION \
+    --output-template-file infrastructure_${TESTACCOUNT1}.template
+
+##In TestAccount2##
+aws cloudformation package \
+    --template-file masterInfraStack.yaml \
+    --s3-bucket $S3BUCKETNAMETESTACCOUNT2 \
+    --s3-prefix infraStack \
+    --region $TESTACCOUNT2REGION \
+    --output-template-file infrastructure_${TESTACCOUNT2}.template
+
+##In TestAccount3##
+aws cloudformation package \
+    --template-file masterInfraStack.yaml \
+    --s3-bucket $S3BUCKETNAMETESTACCOUNT3 \
+    --s3-prefix infraStack \
+    --region $TESTACCOUNT3REGION \
+    --output-template-file infrastructure_${TESTACCOUNT3}.template
+
+Step 2: Validate the package template
+aws cloudformation validate-template \
+    --template-body file://infrastructure_${TESTACCOUNT1}.template
+
+aws cloudformation validate-template \
+    --template-body file://infrastructure_${TESTACCOUNT2}.template
+
+aws cloudformation validate-template \
+    --template-body file://infrastructure_${TESTACCOUNT3}.template
+
+Step 3: Deploy the package template. NOTE: The infraParameters.json has the default values and update account names in parameters.
+##In TestAccount1##
+aws cloudformation deploy \
+    --template-file infrastructure_${TESTACCOUNT1}.template \
+    --stack-name masterInfrastack \
+    --parameter-overrides file://infraParameters.json \
+    --region $TESTACCOUNT1REGION \
+    --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
+
+##In TestAccount2##
+aws cloudformation deploy \
+    --template-file infrastructure_${TESTACCOUNT2}.template \
+    --stack-name masterInfrastack \
+    --parameter-overrides file://infraParameters.json \
+    --region $TESTACCOUNT2REGION \
+    --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
+
+##In TestAccount3##
+aws cloudformation deploy \
+    --template-file infrastructure_${TESTACCOUNT3}.template \
+    --stack-name masterInfrastack \
+    --parameter-overrides file://infraParameters.json \
+    --region $TESTACCOUNT3REGION \
+    --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
+
+Step 4: Push a sample (nginx) image to ECR repository [1] "web" (name as set in parameters). Image can be customized as required.
+  docker pull nginx
+  docker images
+  docker tag <imageid> aws_account_id.dkr.ecr.region.amazonaws.com/<web>:latest
+  docker push <aws_account_id>.dkr.ecr.<region>.amazonaws.com/<web>:tag #NOTE: Follow [1] to login and set the credentials for pushing to ECR.
+
+Step 5: Scale ECS Service (Poc-Service as per parameters) created to two replicas.
+ aws ecs update-service --cluster QA-Cluster --service Poc-Service --desired-count 2
+
+Step 6: Verify if the services is accessible from Load balancer using FQDN/DNS created from a browser.
+
+##In Tools Account##
+Step 7: Create codecommit repository in ToolsAccount. The templates are in code directory.
+aws cloudformation deploy --stack-name codecommitrepoStack --parameter-overrides  CodeCommitReponame=$CODECOMMITREPONAME ToolsAccount=$TOOLSACCOUNT \
+--template-file codecommit.yaml  --region $TOOLSACCOUNTREGION --capabilities CAPABILITY_NAMED_IAM
+
+NOTE: The below files in repositoryFiles directory should be updated for accountid/region and uploaded to codecommit repository.
+It is used for Deployment during pipeline execution. Refer the [Pipeline Setup Steps:] section below for more details.
+  index.html
+  Dockerfile
+  buildspec.yaml
+  taskdef_<accountid1>.json
+  taskdef_<accountid2>.json
+  taskdef_<accountid3>.json
+  appspec_<accountid1>.yaml
+  appspec_<accountid2>.yaml
+  appspec_<accountid3>.yaml
+
+##In ToolsAccount and three Regions used for deployment ##
+Step 8: Create S3 bucket for managing artifacts  by codepipeline. The templates is in code directory.
+aws cloudformation deploy --stack-name pre-reqs-artifacts-bucket --parameter-overrides BucketStartName=$BUCKETSTARTNAME \
+TestAccount1=$TESTACCOUNT1 TestAccount2=$TESTACCOUNT2 \
+TestAccount3=$TESTACCOUNT3 CodeCommitAccount=$CODECOMMITACCOUNT ToolsAccount=$TOOLSACCOUNT \
+--template-file pre-reqs_bucket.yaml --region $TESTACCOUNT1REGION --capabilities CAPABILITY_NAMED_IAM
+
+aws cloudformation deploy --stack-name pre-reqs-artifacts-bucket --parameter-overrides BucketStartName=$BUCKETSTARTNAME \
+TestAccount1=$TESTACCOUNT1 TestAccount2=$TESTACCOUNT2 \
+TestAccount3=$TESTACCOUNT3 CodeCommitAccount=$CODECOMMITACCOUNT ToolsAccount=$TOOLSACCOUNT \
+--template-file pre-reqs_bucket.yaml --region $TESTACCOUNT2REGION --capabilities CAPABILITY_NAMED_IAM
+
+aws cloudformation deploy --stack-name pre-reqs-artifacts-bucket --parameter-overrides BucketStartName=$BUCKETSTARTNAME \
+TestAccount1=$TESTACCOUNT1 TestAccount2=$TESTACCOUNT2 \
+TestAccount3=$TESTACCOUNT3 CodeCommitAccount=$CODECOMMITACCOUNT ToolsAccount=$TOOLSACCOUNT \
+--template-file pre-reqs_bucket.yaml --region $TESTACCOUNT3REGION --capabilities CAPABILITY_NAMED_IAM
+
+aws cloudformation deploy --stack-name pre-reqs-artifacts-bucket --parameter-overrides BucketStartName=$BUCKETSTARTNAME \
+TestAccount1=$TESTACCOUNT1 TestAccount2=$TESTACCOUNT2 \
+TestAccount3=$TESTACCOUNT3 CodeCommitAccount=$CODECOMMITACCOUNT ToolsAccount=$TOOLSACCOUNT \
+--template-file pre-reqs_bucket.yaml --region $TOOLSACCOUNTREGION --capabilities CAPABILITY_NAMED_IAM
+
+##In Tools Account ##
+Step 9: Create Multi region CMK KMS Key Setup with primary and replica keys that will be used by codepipeline. ToolsAccount1region - ap-south-1 will be master region.
+aws cloudformation deploy --stack-name ecs-codepipeline-pre-reqs-KMS \
+--template-file pre-reqs_KMS.yaml --parameter-overrides \
+TestAccount1=$TESTACCOUNT1 TestAccount2=$TESTACCOUNT2 \
+TestAccount3=$TESTACCOUNT3 CodeCommitAccount=$CODECOMMITACCOUNT ToolsAccount=$TOOLSACCOUNT --region $TOOLSACCOUNTREGION
+
+#Set the CMKARN variables to pass to codebuild projects# These are available in Outputs of above stack template (Key id will be same in all regions starting with mrk-).
+export CMKARN1=arn:aws:kms:ap-south-1:$TOOLSACCOUNT:key/mrk-7e0cxxxxxx
+export CMKARN2=arn:aws:kms:eu-central-1:$TOOLSACCOUNT:key/mrk-7e0cxxxxxx
+export CMKARN3=arn:aws:kms:us-east-1:$TOOLSACCOUNT:key/mrk-7e0cxxxxxx
+export CMARNTOOLS=arn:aws:kms:ap-south-1:$TOOLSACCOUNT:key/mrk-7e0cxxxxxx
+
+##In Tools Account in all 3 regions ##
+Step 9: Create IAM Setup for codebuild (IAM only so single region is sufficient).
+aws cloudformation deploy --stack-name ecs-codebuild-iam \
+--template-file codebuild_IAM.yaml --region $TOOLSACCOUNTREGION \
+--capabilities CAPABILITY_NAMED_IAM
+
+Step 9: Create codebuild setup for build project setup.
+aws cloudformation deploy --stack-name ecscodebuildstack --parameter-overrides  ToolsAccount=$TOOLSACCOUNT \
+CodeCommitRepoName=$CODECOMMITREPONAME ECRRepositoryName=$ECRREPOSITORYNAME APPACCOUNTID=$TESTACCOUNT1 \
+TestAccount3=$TESTACCOUNT3 CodeCommitRegion=$CODECOMMITREGION CMKARN=$CMKARN1 \
+--template-file codebuild.yaml  --region $TESTACCOUNT1REGION --capabilities CAPABILITY_NAMED_IAM
+
+aws cloudformation deploy --stack-name ecscodebuildstack --parameter-overrides  ToolsAccount=$TOOLSACCOUNT \
+CodeCommitRepoName=$CODECOMMITREPONAME ECRRepositoryName=$ECRREPOSITORYNAME APPACCOUNTID=$TESTACCOUNT2 \
+TestAccount3=$TESTACCOUNT3 CodeCommitRegion=$CODECOMMITREGION CMKARN=$CMKARN2 \
+--template-file codebuild.yaml  --region $TESTACCOUNT2REGION --capabilities CAPABILITY_NAMED_IAM
+
+aws cloudformation deploy --stack-name ecscodebuildstack --parameter-overrides  ToolsAccount=$TOOLSACCOUNT \
+CodeCommitRepoName=$CODECOMMITREPONAME ECRRepositoryName=$ECRREPOSITORYNAME APPACCOUNTID=$TESTACCOUNT3 \
+CodeCommitRegion=$CODECOMMITREGION CMKARN=$CMKARN3 \
+--template-file codebuild.yaml  --region $TESTACCOUNT3REGION --capabilities CAPABILITY_NAMED_IAM
+
+##In Three Accounts##
+Step 10: Create codedeploy setup in all 3 test accounts. The outputs of masterInfraStack has the ECS Cluster and ALB Listener ARN.
+NOTE: The values from the infra stacks are exported already so they are imported in the codedeploy stack templates.
+##Account1##
+aws cloudformation deploy --stack-name ecscodedeploystack \
+--parameter-overrides  ToolsAccount=$TOOLSACCOUNT masterInfrastackname=masterInfrastack \
+--template-file codedeploy.yaml  --region $TESTACCOUNT1REGION --capabilities CAPABILITY_NAMED_IAM
+
+##Account2##
+aws cloudformation deploy --stack-name ecscodedeploystack \
+--parameter-overrides ToolsAccount=$TOOLSACCOUNT masterInfrastackname=masterInfrastack \
+--template-file codedeploy.yaml  --region $TESTACCOUNT2REGION --capabilities CAPABILITY_NAMED_IAM
+
+##Account3##
+aws cloudformation deploy --stack-name ecscodedeploystack \
+--parameter-overrides ToolsAccount=$TOOLSACCOUNT masterInfrastackname=masterInfrastack \
+--template-file codedeploy.yaml  --region $TESTACCOUNT3REGION --capabilities CAPABILITY_NAMED_IAM
+
+##In Tools Accounts##
+Step:11 Create codepipeline in Tools Account.
+aws cloudformation deploy --stack-name ecscodepipelinestack --parameter-overrides  \
+TestAccount1=$TESTACCOUNT1 TestAccount1Region=$TESTACCOUNT1REGION \
+TestAccount2=$TESTACCOUNT2 TestAccount2Region=$TESTACCOUNT2REGION \
+TestAccount3=$TESTACCOUNT3 TestAccount3Region=$TESTACCOUNT3REGION \
+CMKARNTools=$CMKTROOLSARN CMKARN1=$CMKARN1 CMKARN2=$CMKARN2 CMKARN3=$CMKARN3 \
+CodeCommitRepoName=$CODECOMMITREPONAME BucketStartName=$BUCKETSTARTNAME \
+--template-file codepipeline.yaml --capabilities CAPABILITY_NAMED_IAM
+
+
+##In Tools Accounts##
+Step:12 Provide access for codepipeline, codebuild roles in KMS Key Policy.
+aws cloudformation deploy --stack-name ecs-codepipeline-pre-reqs-KMS \
+--template-file pre-reqs_KMS.yaml --parameter-overrides \
+CodeBuildCondition=true TestAccount1=$TESTACCOUNT1 TestAccount2=$TESTACCOUNT2 \
+TestAccount3=$TESTACCOUNT3 CodeCommitAccount=$CODECOMMITACCOUNT ToolsAccount=$TOOLSACCOUNT --region $TOOLSACCOUNTREGION
+
+Step:13 Update S3 bucket policy to allow access for codepipeline roles and codedeploy roles.
+aws cloudformation deploy --stack-name pre-reqs-artifacts-bucket --parameter-overrides BucketStartName=$BUCKETSTARTNAME \
+PutS3BucketPolicy=true TestAccount1=$TESTACCOUNT1 TestAccount2=$TESTACCOUNT2 \
+TestAccount3=$TESTACCOUNT3 CodeCommitAccount=$CODECOMMITACCOUNT ToolsAccount=$TOOLSACCOUNT \
+--template-file pre-reqs_bucket.yaml --region $TESTACCOUNT1REGION --capabilities CAPABILITY_NAMED_IAM
+
+aws cloudformation deploy --stack-name pre-reqs-artifacts-bucket --parameter-overrides BucketStartName=$BUCKETSTARTNAME \
+PutS3BucketPolicy=true TestAccount1=$TESTACCOUNT1 TestAccount2=$TESTACCOUNT2 \
+TestAccount3=$TESTACCOUNT3 CodeCommitAccount=$CODECOMMITACCOUNT ToolsAccount=$TOOLSACCOUNT \
+--template-file pre-reqs_bucket.yaml --region $TESTACCOUNT2REGION --capabilities CAPABILITY_NAMED_IAM
+
+aws cloudformation deploy --stack-name pre-reqs-artifacts-bucket --parameter-overrides BucketStartName=$BUCKETSTARTNAME \
+PutS3BucketPolicy=true TestAccount1=$TESTACCOUNT1 TestAccount2=$TESTACCOUNT2 \
+TestAccount3=$TESTACCOUNT3 CodeCommitAccount=$CODECOMMITACCOUNT ToolsAccount=$TOOLSACCOUNT \
+--template-file pre-reqs_bucket.yaml --region $TESTACCOUNT3REGION --capabilities CAPABILITY_NAMED_IAM
+
+aws cloudformation deploy --stack-name pre-reqs-artifacts-bucket --parameter-overrides BucketStartName=$BUCKETSTARTNAME \
+PutS3BucketPolicy=true TestAccount1=$TESTACCOUNT1 TestAccount2=$TESTACCOUNT2 \
+TestAccount3=$TESTACCOUNT3 CodeCommitAccount=$CODECOMMITACCOUNT ToolsAccount=$TOOLSACCOUNT \
+--template-file pre-reqs_bucket.yaml --region $TOOLSACCOUNTREGION --capabilities CAPABILITY_NAMED_IAM
+
+
+Pipeline Setup Steps:
+---------------------
+Step 1: Clone the codecommit repository using git clone command [2]
+Step 2: Update the input artifacts with required details:
+   taskdef.json (Update AccountID in the stack at 3 places). Rename the three files to have account ids included respectively.
+   appspec.yaml (Update Task Definition ARN / version). Rename the three files to have account ids included respectively.
+Step 3: - Copy the below files to repository and commit.
+ index.html
+ Dockerfile
+ buildspec.yaml
+ appspec_<accountid>.yaml (3 files - one per account )
+ taskdef<accountid>.json (3 files - one per account)
+Step 4: Initiate pipeline execution if not started yet or failed before and verify the results.
+Step 5: Access the service from Load balancer using FQDN/DNS and observe the updates deployed.
+
+Modify the index.html file and release changes in Pipeline. Verify the home page of load balancer if it got successfully deployed.
+
+To push an image to ECR:
+------------------------
+
+docker pull nginx
+docker images
+docker tag <IMAGEID> <ACCOUNTID>.dkr.ecr.ap-south-1.amazonaws.com/web:latest
+aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin <ACCOUNTID>.dkr.ecr.ap-south-1.amazonaws.com
+docker push <ACCOUNTID>.dkr.ecr.ap-south-1.amazonaws.com/web:latest
+
+
+Cleanup:
+---------
+Step 1: Scale down ECS Service to 0.
+aws ecs update-service --cluster QA-Cluster --service Poc-Service --desired-count 0
+Step 2: Delete the cloudformation stacks in respective accounts and regions with below commands.
+
+##In Tools Account##
+aws cloudformation delete-stack --stack-name ecscodepipelinestack --region $TOOLSACCOUNTREGION
+aws cloudformation delete-stack --stack-name ecscodebuildstack --region $TESTACCOUNT1REGION
+aws cloudformation delete-stack --stack-name ecscodebuildstack --region $TESTACCOUNT2REGION
+aws cloudformation delete-stack --stack-name ecscodebuildstack --region $TESTACCOUNT3REGION
+aws cloudformation delete-stack --stack-name ecs-codepipeline-pre-reqs-KMS --region $TOOLSACCOUNTREGION
+aws cloudformation delete-stack --stack-name codecommitrepoStack --region $TOOLSACCOUNTREGION
+aws cloudformation delete-stack --stack-name pre-reqs-artifacts-bucket --region $TESTACCOUNT1REGION
+aws cloudformation delete-stack --stack-name pre-reqs-artifacts-bucket --region $TESTACCOUNT2REGION
+aws cloudformation delete-stack --stack-name pre-reqs-artifacts-bucket --region $TESTACCOUNT3REGION
+aws cloudformation delete-stack --stack-name pre-reqs-artifacts-bucket --region $TOOLSACCOUNTREGION
+aws cloudformation delete-stack --stack-name ecs-codebuild-iam --region $TOOLSACCOUNTREGION
+NOTE: Artifact buckets will not get deleted if there are artifacts so it has to be emptied manually before deleting.
+
+##In Test Accounts##
+##Account:1##
+aws cloudformation delete-stack --stack-name ecscodedeploystack --region $TESTACCOUNT1REGION
+aws cloudformation delete-stack --stack-name masterInfrastack --region $TESTACCOUNT1REGION
+
+##Account:2##
+aws cloudformation delete-stack --stack-name ecscodedeploystack --region $TESTACCOUNT2REGION
+aws cloudformation delete-stack --stack-name masterInfrastack --region $TESTACCOUNT2REGION
+
+##Account:3##
+aws cloudformation delete-stack --stack-name ecscodedeploystack --region $TESTACCOUNT3REGION
+aws cloudformation delete-stack --stack-name masterInfrastack --region $TESTACCOUNT3REGION
+
+(NOTE: ECR (web) will not get deleted if there are images still present in registry). It can be manually cleaned up if not required.
+References:
+-----------
+[1]https://docs.aws.amazon.com/AmazonECR/latest/userguide/docker-push-ecr-image.html
+[2]https://docs.aws.amazon.com/codecommit/latest/userguide/how-to-connect.html
