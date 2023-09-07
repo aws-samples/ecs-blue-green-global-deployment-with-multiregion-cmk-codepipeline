@@ -1,15 +1,15 @@
 [
   {
-  "ParameterKey": "masterInfrastackname",
-  "ParameterValue": "masterInfrastack"
+  "ParameterKey": "mainInfrastackname",
+  "ParameterValue": "mainInfrastack"
   },
   {
   "ParameterKey": "ArtifactStore",
-  "ParameterValue": "codepipeline-us-east-1-335429349062"
+  "ParameterValue": "codepipeline-us-east-1-xxxx"
   },
   {
   "ParameterKey": "CodeRepositoryAccount",
-  "ParameterValue": "715655806272"
+  "ParameterValue": "12345678"
   },
   {
   "ParameterKey": "EnvironmentType",

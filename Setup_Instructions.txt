@@ -44,7 +44,7 @@ export ECRREPOSITORYNAME=web
 Step 1: Create the package for infrastructure setup and deploy. The templates are available inside Infra directory.
 ##In TestAccount1##
 aws cloudformation package \
-    --template-file masterInfraStack.yaml \
+    --template-file mainInfraStack.yaml \
     --s3-bucket $S3BUCKETNAMETESTACCOUNT1 \
     --s3-prefix infraStack \
     --region $TESTACCOUNT1REGION \
@@ -52,7 +52,7 @@ aws cloudformation package \
 
 ##In TestAccount2##
 aws cloudformation package \
-    --template-file masterInfraStack.yaml \
+    --template-file mainInfraStack.yaml \
     --s3-bucket $S3BUCKETNAMETESTACCOUNT2 \
     --s3-prefix infraStack \
     --region $TESTACCOUNT2REGION \
@@ -60,7 +60,7 @@ aws cloudformation package \
 
 ##In TestAccount3##
 aws cloudformation package \
-    --template-file masterInfraStack.yaml \
+    --template-file mainnfraStack.yaml \
     --s3-bucket $S3BUCKETNAMETESTACCOUNT3 \
     --s3-prefix infraStack \
     --region $TESTACCOUNT3REGION \
@@ -80,7 +80,7 @@ Step 3: Deploy the package template. NOTE: The infraParameters.json has the defa
 ##In TestAccount1##
 aws cloudformation deploy \
     --template-file infrastructure_${TESTACCOUNT1}.template \
-    --stack-name masterInfrastack \
+    --stack-name mainInfrastack \
     --parameter-overrides file://infraParameters.json \
     --region $TESTACCOUNT1REGION \
     --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
@@ -88,7 +88,7 @@ aws cloudformation deploy \
 ##In TestAccount2##
 aws cloudformation deploy \
     --template-file infrastructure_${TESTACCOUNT2}.template \
-    --stack-name masterInfrastack \
+    --stack-name mainInfrastack \
     --parameter-overrides file://infraParameters.json \
     --region $TESTACCOUNT2REGION \
     --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
@@ -96,7 +96,7 @@ aws cloudformation deploy \
 ##In TestAccount3##
 aws cloudformation deploy \
     --template-file infrastructure_${TESTACCOUNT3}.template \
-    --stack-name masterInfrastack \
+    --stack-name mainInfrastack \
     --parameter-overrides file://infraParameters.json \
     --region $TESTACCOUNT3REGION \
     --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
@@ -152,7 +152,7 @@ TestAccount3=$TESTACCOUNT3 CodeCommitAccount=$CODECOMMITACCOUNT ToolsAccount=$TO
 --template-file pre-reqs_bucket.yaml --region $TOOLSACCOUNTREGION --capabilities CAPABILITY_NAMED_IAM
 
 ##In Tools Account ##
-Step 9: Create Multi region CMK KMS Key Setup with primary and replica keys that will be used by codepipeline. ToolsAccount1region - ap-south-1 will be master region.
+Step 9: Create Multi region CMK KMS Key Setup with primary and replica keys that will be used by codepipeline. ToolsAccount1region - ap-south-1 will be main region.
 aws cloudformation deploy --stack-name ecs-codepipeline-pre-reqs-KMS \
 --template-file pre-reqs_KMS.yaml --parameter-overrides \
 TestAccount1=$TESTACCOUNT1 TestAccount2=$TESTACCOUNT2 \
@@ -187,21 +187,21 @@ CodeCommitRegion=$CODECOMMITREGION CMKARN=$CMKARN3 \
 --template-file codebuild.yaml  --region $TESTACCOUNT3REGION --capabilities CAPABILITY_NAMED_IAM
 
 ##In Three Accounts##
-Step 10: Create codedeploy setup in all 3 test accounts. The outputs of masterInfraStack has the ECS Cluster and ALB Listener ARN.
+Step 10: Create codedeploy setup in all 3 test accounts. The outputs of mainInfraStack has the ECS Cluster and ALB Listener ARN.
 NOTE: The values from the infra stacks are exported already so they are imported in the codedeploy stack templates.
 ##Account1##
 aws cloudformation deploy --stack-name ecscodedeploystack \
---parameter-overrides  ToolsAccount=$TOOLSACCOUNT masterInfrastackname=masterInfrastack \
+--parameter-overrides  ToolsAccount=$TOOLSACCOUNT mainInfrastackname=mainInfrastack \
 --template-file codedeploy.yaml  --region $TESTACCOUNT1REGION --capabilities CAPABILITY_NAMED_IAM
 
 ##Account2##
 aws cloudformation deploy --stack-name ecscodedeploystack \
---parameter-overrides ToolsAccount=$TOOLSACCOUNT masterInfrastackname=masterInfrastack \
+--parameter-overrides ToolsAccount=$TOOLSACCOUNT mainInfrastackname=mainInfrastack \
 --template-file codedeploy.yaml  --region $TESTACCOUNT2REGION --capabilities CAPABILITY_NAMED_IAM
 
 ##Account3##
 aws cloudformation deploy --stack-name ecscodedeploystack \
---parameter-overrides ToolsAccount=$TOOLSACCOUNT masterInfrastackname=masterInfrastack \
+--parameter-overrides ToolsAccount=$TOOLSACCOUNT mainInfrastackname=mainInfrastack \
 --template-file codedeploy.yaml  --region $TESTACCOUNT3REGION --capabilities CAPABILITY_NAMED_IAM
 
 ##In Tools Accounts##
@@ -294,15 +294,15 @@ NOTE: Artifact buckets will not get deleted if there are artifacts so it has to 
 ##In Test Accounts##
 ##Account:1##
 aws cloudformation delete-stack --stack-name ecscodedeploystack --region $TESTACCOUNT1REGION
-aws cloudformation delete-stack --stack-name masterInfrastack --region $TESTACCOUNT1REGION
+aws cloudformation delete-stack --stack-name mainInfrastack --region $TESTACCOUNT1REGION
 
 ##Account:2##
 aws cloudformation delete-stack --stack-name ecscodedeploystack --region $TESTACCOUNT2REGION
-aws cloudformation delete-stack --stack-name masterInfrastack --region $TESTACCOUNT2REGION
+aws cloudformation delete-stack --stack-name mainInfrastack --region $TESTACCOUNT2REGION
 
 ##Account:3##
 aws cloudformation delete-stack --stack-name ecscodedeploystack --region $TESTACCOUNT3REGION
-aws cloudformation delete-stack --stack-name masterInfrastack --region $TESTACCOUNT3REGION
+aws cloudformation delete-stack --stack-name mainInfrastack --region $TESTACCOUNT3REGION
 
 (NOTE: ECR (web) will not get deleted if there are images still present in registry). It can be manually cleaned up if not required.
 References:

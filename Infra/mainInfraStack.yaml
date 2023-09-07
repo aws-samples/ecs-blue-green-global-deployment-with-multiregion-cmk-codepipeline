@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: |
- Master stack to create all resources from nested stack
- Master Stack usec for end to end setup of below components
+ Main stack to create all resources from nested stack
+ Main Stack usec for end to end setup of below components
  VPC - Subnets, NAT, IGW
  ECR - Single registry
  ECS - Cluster, Task Definition, Fargate Service, Security Group to allow traffic from LB

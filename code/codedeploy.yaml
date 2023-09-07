@@ -12,9 +12,9 @@ Parameters:
   # ECSService:
   #   Type: String
   #   Description: ECS Service name to deploy the application
-  masterInfrastackname:
+  mainInfrastackname:
     Type: String
-    Description: The master infra stack name that created VPC, ECS and ALB configuration.
+    Description: The main infra stack name that created VPC, ECS and ALB configuration.
   EnvironmentType:
     Description: An environment name that is tagged to resource names for identification
     Type: String
@@ -73,10 +73,10 @@ Resources:
       ECSServices:
       - ClusterName:
           Fn::ImportValue:
-           !Sub "${masterInfrastackname}-ECSCluster-${EnvironmentType}"
+           !Sub "${mainInfrastackname}-ECSCluster-${EnvironmentType}"
         ServiceName:
           Fn::ImportValue:
-           !Sub "${masterInfrastackname}-ECSService-${EnvironmentType}"
+           !Sub "${mainInfrastackname}-ECSService-${EnvironmentType}"
       LoadBalancerInfo:
         # ElbInfoList:
         # - Name: !Sub ${EnvironmentName}-${EnvironmentType}-ALB
@@ -87,7 +87,7 @@ Resources:
           ProdTrafficRoute:
             ListenerArns:
             - Fn::ImportValue:
-                !Sub "${masterInfrastackname}-ALBListener-${EnvironmentType}"
+                !Sub "${mainInfrastackname}-ALBListener-${EnvironmentType}"
   CodePipelineECSRole:
     Type: AWS::IAM::Role
     Properties:
