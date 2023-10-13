@@ -60,7 +60,7 @@ aws cloudformation package \
 
 ##In TestAccount3##
 aws cloudformation package \
-    --template-file mainfraStack.yaml \
+    --template-file mainInfraStack.yaml \
     --s3-bucket $S3BUCKETNAMETESTACCOUNT3 \
     --s3-prefix infraStack \
     --region $TESTACCOUNT3REGION \

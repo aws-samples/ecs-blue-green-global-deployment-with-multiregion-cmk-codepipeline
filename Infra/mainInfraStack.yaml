@@ -97,11 +97,11 @@ Resources:
       RepositoryPolicyText:
         Version: '2012-10-17'
         Statement:
-          - 
+          -
             Sid: AllowPushPull
             Effect: Allow
             Principal:
-              AWS: 
+              AWS:
                - !Sub "arn:aws:iam::${ToolsAccount}:root"
             Action:
               - 'ecr:GetDownloadUrlForLayer'
