@@ -87,13 +87,9 @@ The above discussed architecture is implemented in below steps using cloudformat
 
 
 - **Development:** The software/code development occurs in a centralized account.
-
 - **Deployment Across Multiple Accounts and Regions:** The deployment involves spreading workload/applications across multiple accounts and regions.
-
 - **Encryption and Decryption:** The use of a single Customer Master Key (CMK) for encryption and decryption across regions, specifically for a Disaster Recovery scenario.
-
 - **CMK Management:** The CMK is region-specific and needs to be maintained or created in three different regions for pipeline artifacts. A multi-region CMK is preferred for consistency in key identification across regions.
-
 - **Gitflow Workflow:** Implementation of a Git workflow branching model with two branches (develop and main) for merging code changes from the develop branch to the main branch using pull requests (PR).
 
 ## Cleanup
