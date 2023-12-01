@@ -1,10 +1,12 @@
 # Global Blue/Green deployments in multiple regions and accounts for ECS Fargate using AWS Codepipeline and Cloudformation
 
+
+
 ## Overview
 
 - Customer is looking for a deployment from a centralised account to multiple accounts and across regions for a Global application. The software development /code development happens only in the centralised account and workload / applications are spread across multiple accounts and across regions. The encryption and decryption must happen only with a single CMK Multi region key (covering Disaster Recovery scenario). 
 - As per security guidelines from customer, same CMK should be used across regions for encryption and decryption. CMK is region specific and it has to be maintained or created in 3 different regions for pipeline artifacts. Multi region CMK helps to retain the same key id across regions. 
-- Git workflow branching model should be implemented with two branches (develop and main) for merging the codes from develop to main branch with a PR. 
+- Gitflow workflow branching model should be implemented with two branches (develop and main) for merging the codes from develop to main branch with a PR. 
 
 ### What is covered here ?
 - This pattern covers all the above requirements and provides a sample IaC setup using AWS cloudformation stacks) to demonstrate this. 
@@ -80,6 +82,19 @@ The above discussed architecture is implemented in below steps using cloudformat
 - Create a new feature branch from main branch.
 - Push changes to feature branch and create a PR to main branch.
 - Verify if lambda function approves the merge and invoke pipeline.
+
+### Summary
+
+
+- **Development:** The software/code development occurs in a centralized account.
+
+- **Deployment Across Multiple Accounts and Regions:** The deployment involves spreading workload/applications across multiple accounts and regions.
+
+- **Encryption and Decryption:** The use of a single Customer Master Key (CMK) for encryption and decryption across regions, specifically for a Disaster Recovery scenario.
+
+- **CMK Management:** The CMK is region-specific and needs to be maintained or created in three different regions for pipeline artifacts. A multi-region CMK is preferred for consistency in key identification across regions.
+
+- **Gitflow Workflow:** Implementation of a Git workflow branching model with two branches (develop and main) for merging code changes from the develop branch to the main branch using pull requests (PR).
 
 ## Cleanup
 - Scale down ECS Service to 0. Clean up any images from ECR repository.
