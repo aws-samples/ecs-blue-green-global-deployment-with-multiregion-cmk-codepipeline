@@ -4,7 +4,7 @@
 
 - Customer is looking for a deployment from a centralised account to multiple accounts and across regions for a Global application. The software development /code development happens only in the centralised account and workload / applications are spread across multiple accounts and across regions. The encryption and decryption must happen only with a single CMK Multi region key (covering Disaster Recovery scenario). 
 - As per security guidelines from customer, same CMK should be used across regions for encryption and decryption. CMK is region specific and it has to be maintained or created in 3 different regions for pipeline artifacts. Multi region CMK helps to retain the same key id across regions. 
-- Git workflow branching model should be implemented with two branches (development and main) for merging the codes from development to main branch with a PR. 
+- Git workflow branching model should be implemented with two branches (develop and main) for merging the codes from develop to main branch with a PR. 
 
 ### What is covered here ?
 - This pattern covers all the above requirements and provides a sample IaC setup using AWS cloudformation stacks) to demonstrate this. 
@@ -14,7 +14,7 @@
    - Workload / Test account 1 - **ap-south-1**
    - Workload / Test account 2 - **eu-central-1**
    - Workload / Test account 3 - **us-east-1**
-- The lamdba function deployed from this stack will create a PR from development to main branch. The PR merge to main branch will trigger the Codepipeline to orchestrate the CI/CD flow and deploy the stacks across accounts.
+- The lamdba function deployed from this stack will create a PR from develop to main branch. The PR merge to main branch will trigger the Codepipeline to orchestrate the CI/CD flow and deploy the stacks across accounts.
 
 ## Pre-Requisites
 - Four AWS accounts to implement this pattern.
@@ -34,11 +34,11 @@
 
 ### Technology stack  
 
-- AWS CloudFormation
-- AWS CodeCommit
-- AWS CodeBuild
-- AWS CodeDeploy
-- AWS CodePipeline
+- [AWS CloudFormation](https://aws.amazon.com/cloudformation/)
+- [AWS CodeCommit](https://aws.amazon.com/codecommit/)
+- [AWS CodeBuild](https://aws.amazon.com/codebuild/)
+- [AWS CodeDeploy](https://aws.amazon.com/codedeploy/)
+- [AWS CodePipeline](https://aws.amazon.com/codepipeline/)
 
 ## Tools Required
 - Git - command line utility to work with codecommit repository.
